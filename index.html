@@ -46,10 +46,6 @@
   .chips::-webkit-scrollbar{display:none}
   .chip{flex:none;padding:7px 12px;border-radius:999px;background:var(--card);border:1px solid var(--line);font-size:13.5px;font-weight:600;color:var(--sub)}
   .chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
-  .chips.acct{margin-top:-4px}
-  .chips.acct .chip{padding:5px 11px;font-size:12.5px}
-  .chips.acct .chip.on{background:var(--main);border-color:var(--main)}
-  .acct-tag{background:var(--main-soft);color:var(--main);border-radius:6px;padding:1px 7px;font-weight:700;margin-left:4px}
   .ver{text-align:center;color:var(--sub);font-size:12px;margin-top:12px}
 
   /* 목록 */
@@ -154,7 +150,6 @@
     <button data-view="cal">달력</button>
   </div>
   <div class="chips" id="siteChips"></div>
-  <div class="chips acct" id="acctChips"></div>
 
   <div id="listView"></div>
   <div id="calView" class="hidden"></div>
@@ -220,7 +215,7 @@
       <button class="btn" id="logoutBtn">로그아웃</button>
       <button class="btn main" data-close>닫기</button>
     </div>
-    <p class="ver">앱 버전 1.3 · 계정 표시 지원</p>
+    <p class="ver">앱 버전 1.4 · 사이트_계정 표시</p>
   </div>
 </div>
 
@@ -237,11 +232,13 @@ const SITE_COLOR = {
   "리워딩스": "#9B6BE8", "아싸뷰": "#F2B233", "리뷰노트": "#2FA58A", "기타": "#9AA7A2",
 };
 const colorOf = (s) => SITE_COLOR[s] || SITE_COLOR["기타"];
+// 사이트 + 계정 → "리뷰플레이스_도로미" (계정이 없으면 사이트 이름만)
+const labelOf = (i) => (i.account ? `${i.site}_${i.account}` : i.site);
 const WD = ["일", "월", "화", "수", "목", "금", "토"];
 
 const state = {
   user: null, items: [], settings: null,
-  filter: "전체", acct: "전체", view: "list", showDone: false,
+  filter: "전체", view: "list", showDone: false,
   calMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1), selDay: null,
   editing: null, signup: false,
 };
@@ -321,7 +318,7 @@ document.addEventListener("visibilitychange", async () => {
 
 /* ---------- 화면 그리기 ---------- */
 function visibleItems() {
-  return state.items.filter((i) => (state.filter === "전체" || i.site === state.filter) && (state.acct === "전체" || (i.account || "") === state.acct));
+  return state.items.filter((i) => state.filter === "전체" || labelOf(i) === state.filter);
 }
 
 function badge(i) {
@@ -336,7 +333,7 @@ function cardHTML(i) {
   return `<div class="card ${i.done ? "done" : ""}" data-id="${i.id}">
     ${badge(i)}
     <div class="info" data-edit>
-      <span class="site"><i class="dot" style="background:${colorOf(i.site)}"></i>${esc(i.site)}${i.account ? `<span class="acct-tag">👤 ${esc(i.account)}</span>` : ""}</span>
+      <span class="site"><i class="dot" style="background:${colorOf(i.site)}"></i>${esc(labelOf(i))}</span>
       <div class="title">${esc(i.title)}</div>
       <div class="meta">마감 ${fmtDate(i.deadline)}${i.memo ? " · " + esc(i.memo).slice(0, 30) : ""}</div>
     </div>
@@ -355,21 +352,15 @@ function renderSummary() {
 }
 
 function renderChips() {
-  const used = new Set(state.items.map((i) => i.site));
-  const list = ["전체", ...SITES.filter((s) => used.has(s)), ...[...used].filter((s) => !SITES.includes(s))];
-  $("#siteChips").innerHTML = list.map((s) =>
-    `<button class="chip ${state.filter === s ? "on" : ""}" data-site="${esc(s)}">${s === "전체" ? "" : `<i class="dot" style="background:${colorOf(s)};margin-right:5px"></i>`}${esc(s)}</button>`
+  // 사이트 순서대로, 같은 사이트 안에서는 계정 이름 순
+  const order = (i) => (SITES.indexOf(i.site) < 0 ? 99 : SITES.indexOf(i.site));
+  const seen = new Map();
+  [...state.items].sort((a, b) => order(a) - order(b) || (a.account || "").localeCompare(b.account || ""))
+    .forEach((i) => { if (!seen.has(labelOf(i))) seen.set(labelOf(i), i.site); });
+  if (state.filter !== "전체" && !seen.has(state.filter)) state.filter = "전체";
+  $("#siteChips").innerHTML = [["전체", null], ...seen.entries()].map(([label, site]) =>
+    `<button class="chip ${state.filter === label ? "on" : ""}" data-site="${esc(label)}">${site ? `<i class="dot" style="background:${colorOf(site)};margin-right:5px"></i>` : ""}${esc(label)}</button>`
   ).join("");
-}
-
-function renderAcctChips() {
-  const inSite = state.items.filter((i) => state.filter === "전체" || i.site === state.filter);
-  const accts = [...new Set(inSite.map((i) => i.account || "").filter(Boolean))].sort();
-  if (state.acct !== "전체" && !accts.includes(state.acct)) state.acct = "전체";
-  const el = $("#acctChips");
-  el.classList.toggle("hidden", accts.length === 0);
-  el.innerHTML = ["전체", ...accts].map((a) =>
-    `<button class="chip ${state.acct === a ? "on" : ""}" data-acct="${esc(a)}">${a === "전체" ? "모든 계정" : "👤 " + esc(a)}</button>`).join("");
 }
 
 function renderList() {
@@ -427,7 +418,7 @@ function renderCal() {
 }
 
 function render() {
-  renderSummary(); renderChips(); renderAcctChips();
+  renderSummary(); renderChips();
   $("#listView").classList.toggle("hidden", state.view !== "list");
   $("#calView").classList.toggle("hidden", state.view !== "cal");
   state.view === "list" ? renderList() : renderCal();
@@ -444,10 +435,7 @@ $("#siteChips").onclick = (e) => {
   const c = e.target.closest("[data-site]"); if (!c) return;
   state.filter = c.dataset.site; render();
 };
-$("#acctChips").onclick = (e) => {
-  const c = e.target.closest("[data-acct]"); if (!c) return;
-  state.acct = c.dataset.acct; render();
-};
+
 
 document.body.addEventListener("click", async (e) => {
   if (e.target.id === "toggleDone") { state.showDone = !state.showDone; return renderList(); }
@@ -481,10 +469,11 @@ $("#fab").onclick = () => openEdit(null);
 function openEdit(item) {
   state.editing = item;
   $("#editTitle").textContent = item ? "체험단 수정" : "체험단 추가";
-  const site = item?.site || (state.filter !== "전체" ? state.filter : SITES[0]);
+  const picked = state.filter !== "전체" ? state.items.find((x) => labelOf(x) === state.filter) : null;
+  const site = item?.site || picked?.site || SITES[0];
   if (![...$("#fSite").options].some((o) => o.value === site)) $("#fSite").insertAdjacentHTML("beforeend", `<option>${esc(site)}</option>`);
   $("#fSite").value = site;
-  $("#fAccount").value = item ? (item.account || "") : (state.acct !== "전체" ? state.acct : "");
+  $("#fAccount").value = item ? (item.account || "") : (picked?.account || "");
   $("#acctList").innerHTML = [...new Set(state.items.map((i) => i.account).filter(Boolean))].map((a) => `<option value="${esc(a)}">`).join("");
   $("#fTitle").value = item?.title || "";
   $("#fDeadline").value = item?.deadline || state.selDay || "";
