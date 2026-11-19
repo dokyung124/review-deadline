@@ -46,6 +46,11 @@
   .chips::-webkit-scrollbar{display:none}
   .chip{flex:none;padding:7px 12px;border-radius:999px;background:var(--card);border:1px solid var(--line);font-size:13.5px;font-weight:600;color:var(--sub)}
   .chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .chips.acct{margin-top:-4px}
+  .chips.acct .chip{padding:5px 11px;font-size:12.5px}
+  .chips.acct .chip.on{background:var(--main);border-color:var(--main)}
+  .acct-tag{background:var(--main-soft);color:var(--main);border-radius:6px;padding:1px 7px;font-weight:700;margin-left:4px}
+  .ver{text-align:center;color:var(--sub);font-size:12px;margin-top:12px}
 
   /* 목록 */
   .sec-title{font-size:13.5px;font-weight:700;color:var(--sub);margin:18px 4px 8px;display:flex;justify-content:space-between}
@@ -149,6 +154,7 @@
     <button data-view="cal">달력</button>
   </div>
   <div class="chips" id="siteChips"></div>
+  <div class="chips acct" id="acctChips"></div>
 
   <div id="listView"></div>
   <div id="calView" class="hidden"></div>
@@ -162,6 +168,9 @@
     <h2 id="editTitle">체험단 추가</h2>
     <label class="f">사이트</label>
     <select id="fSite" class="in"></select>
+    <label class="f">계정 (같은 사이트 아이디가 여러 개일 때)</label>
+    <input id="fAccount" class="in" list="acctList" placeholder="예) 두루미1 · 비워두면 구분 없음" />
+    <datalist id="acctList"></datalist>
     <label class="f">제품 / 캠페인명</label>
     <input id="fTitle" class="in" placeholder="예) 촉촉 수분크림 구매평" />
     <label class="f">리뷰 마감일</label>
@@ -211,6 +220,7 @@
       <button class="btn" id="logoutBtn">로그아웃</button>
       <button class="btn main" data-close>닫기</button>
     </div>
+    <p class="ver">앱 버전 1.3 · 계정 표시 지원</p>
   </div>
 </div>
 
@@ -231,7 +241,7 @@ const WD = ["일", "월", "화", "수", "목", "금", "토"];
 
 const state = {
   user: null, items: [], settings: null,
-  filter: "전체", view: "list", showDone: false,
+  filter: "전체", acct: "전체", view: "list", showDone: false,
   calMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1), selDay: null,
   editing: null, signup: false,
 };
@@ -311,7 +321,7 @@ document.addEventListener("visibilitychange", async () => {
 
 /* ---------- 화면 그리기 ---------- */
 function visibleItems() {
-  return state.items.filter((i) => state.filter === "전체" || i.site === state.filter);
+  return state.items.filter((i) => (state.filter === "전체" || i.site === state.filter) && (state.acct === "전체" || (i.account || "") === state.acct));
 }
 
 function badge(i) {
@@ -326,7 +336,7 @@ function cardHTML(i) {
   return `<div class="card ${i.done ? "done" : ""}" data-id="${i.id}">
     ${badge(i)}
     <div class="info" data-edit>
-      <span class="site"><i class="dot" style="background:${colorOf(i.site)}"></i>${esc(i.site)}</span>
+      <span class="site"><i class="dot" style="background:${colorOf(i.site)}"></i>${esc(i.site)}${i.account ? `<span class="acct-tag">👤 ${esc(i.account)}</span>` : ""}</span>
       <div class="title">${esc(i.title)}</div>
       <div class="meta">마감 ${fmtDate(i.deadline)}${i.memo ? " · " + esc(i.memo).slice(0, 30) : ""}</div>
     </div>
@@ -350,6 +360,16 @@ function renderChips() {
   $("#siteChips").innerHTML = list.map((s) =>
     `<button class="chip ${state.filter === s ? "on" : ""}" data-site="${esc(s)}">${s === "전체" ? "" : `<i class="dot" style="background:${colorOf(s)};margin-right:5px"></i>`}${esc(s)}</button>`
   ).join("");
+}
+
+function renderAcctChips() {
+  const inSite = state.items.filter((i) => state.filter === "전체" || i.site === state.filter);
+  const accts = [...new Set(inSite.map((i) => i.account || "").filter(Boolean))].sort();
+  if (state.acct !== "전체" && !accts.includes(state.acct)) state.acct = "전체";
+  const el = $("#acctChips");
+  el.classList.toggle("hidden", accts.length === 0);
+  el.innerHTML = ["전체", ...accts].map((a) =>
+    `<button class="chip ${state.acct === a ? "on" : ""}" data-acct="${esc(a)}">${a === "전체" ? "모든 계정" : "👤 " + esc(a)}</button>`).join("");
 }
 
 function renderList() {
@@ -407,7 +427,7 @@ function renderCal() {
 }
 
 function render() {
-  renderSummary(); renderChips();
+  renderSummary(); renderChips(); renderAcctChips();
   $("#listView").classList.toggle("hidden", state.view !== "list");
   $("#calView").classList.toggle("hidden", state.view !== "cal");
   state.view === "list" ? renderList() : renderCal();
@@ -423,6 +443,10 @@ document.querySelectorAll(".seg button").forEach((b) => b.onclick = () => {
 $("#siteChips").onclick = (e) => {
   const c = e.target.closest("[data-site]"); if (!c) return;
   state.filter = c.dataset.site; render();
+};
+$("#acctChips").onclick = (e) => {
+  const c = e.target.closest("[data-acct]"); if (!c) return;
+  state.acct = c.dataset.acct; render();
 };
 
 document.body.addEventListener("click", async (e) => {
@@ -460,6 +484,8 @@ function openEdit(item) {
   const site = item?.site || (state.filter !== "전체" ? state.filter : SITES[0]);
   if (![...$("#fSite").options].some((o) => o.value === site)) $("#fSite").insertAdjacentHTML("beforeend", `<option>${esc(site)}</option>`);
   $("#fSite").value = site;
+  $("#fAccount").value = item ? (item.account || "") : (state.acct !== "전체" ? state.acct : "");
+  $("#acctList").innerHTML = [...new Set(state.items.map((i) => i.account).filter(Boolean))].map((a) => `<option value="${esc(a)}">`).join("");
   $("#fTitle").value = item?.title || "";
   $("#fDeadline").value = item?.deadline || state.selDay || "";
   $("#fUrl").value = item?.url || "";
@@ -471,7 +497,7 @@ function openEdit(item) {
 
 $("#saveBtn").onclick = async () => {
   const row = {
-    site: $("#fSite").value, title: $("#fTitle").value.trim(), deadline: $("#fDeadline").value,
+    site: $("#fSite").value, account: $("#fAccount").value.trim(), title: $("#fTitle").value.trim(), deadline: $("#fDeadline").value,
     url: $("#fUrl").value.trim() || null, memo: $("#fMemo").value.trim() || null,
   };
   if (!row.title) return toast("캠페인명을 입력해주세요");
